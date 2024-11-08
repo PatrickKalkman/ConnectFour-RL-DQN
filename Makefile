@@ -4,15 +4,15 @@ test:
 	poetry run pytest
 
 coverage:
-	poetry run pytest --cov=src --cov-report=term-missing
+	poetry run pytest --cov=connectfour --cov-report=term-missing
 
 format:
-	poetry run black src tests
-	poetry run isort src tests
+	poetry run black connectfour tests
+	poetry run isort connectfour tests
 
 lint:
-	poetry run mypy src
-	poetry run black --check src tests
-	poetry run isort --check-only src tests
+	poetry run mypy connectfour
+	poetry run black --check connectfour tests
+	poetry run isort --check-only connectfour tests
 
 check: format lint test
