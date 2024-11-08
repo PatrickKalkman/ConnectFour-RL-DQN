@@ -1,6 +1,6 @@
 # Connect Four AI: From PettingZoo to Kaggle
 
-![Tests](https://github.com/PatrickKalkman/ConnectFour-RL-DQN.git/workflows/Tests/badge.svg)
+![Tests](https://github.com/PatrickKalkman/ConnectFour-RL-DQN/actions/workflows/tests.yml/badge.svg)
 
 This repository contains implementations of Connect Four AI agents using both traditional Q-learning with sparse matrix storage and deep Q-learning approaches. The project demonstrates scaling reinforcement learning from simple to complex game environments.
 
