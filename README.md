@@ -4,7 +4,7 @@
 
 This repository contains implementations of Connect Four AI agents using both traditional Q-learning with sparse matrix storage and deep Q-learning approaches. The project demonstrates scaling reinforcement learning from simple to complex game environments.
 
-Read the full article (in progress): [From Zero to Kaggle Hero: Building a Connect Four AI Champion](https://medium.com/@pkalkman)
+Read the full article (nothing there, currently in progress): [From Zero to Kaggle Hero: Building a Connect Four AI Champion](https://medium.com/@pkalkman)
 
 ## Features
 
