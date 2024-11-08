@@ -1,8 +1,7 @@
 from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
-from pettingzoo.classic import connect_four_v3
 
 
 class SparseQTable:
