@@ -1,6 +1,6 @@
 import pytest
 from pettingzoo.classic import connect_four_v3
-from src.sparse_matrix.q_learning_agent import QLearningAgent
+from connectfour.sparse_matrix.q_learning_agent import QLearningAgent
 
 
 @pytest.fixture
