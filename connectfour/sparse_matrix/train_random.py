@@ -12,13 +12,13 @@ from connectfour.sparse_matrix.q_learning_agent import QLearningAgent
 
 @dataclass
 class TrainingConfig:
-    episodes: int = 150_000
-    log_interval: int = 100
-    save_interval: int = 20_000
-    render_interval: int = 20_000
-    render_delay: float = 0.5
+    episodes: int = 500_000
+    log_interval: int = 1000
+    save_interval: int = 50_000
+    render_interval: int = 50_000
+    render_delay: float = 0.1
     model_path: str = "models/agent.npy"
-    metrics_path: str = "metrics/training_metrics.json"
+    metrics_path: str = "metrics/training_metrics_random.json"
 
 
 class Trainer:

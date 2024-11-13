@@ -1,7 +1,9 @@
+import time
+from collections import defaultdict
+from functools import wraps
 from typing import List, Optional, Tuple
 
 import numpy as np
-
 
 class MinimaxPlayer:
     def __init__(self, depth: int = 4):
@@ -14,10 +16,6 @@ class MinimaxPlayer:
     def _drop_piece(
         self, board: np.ndarray, col: int, player: int
     ) -> Tuple[bool, np.ndarray]:
-        """
-        Drop a piece in the specified column
-        Returns: (success, new_board)
-        """
         temp_board = board.copy()
         for row in range(5, -1, -1):
             if temp_board[row][col] == 0:
@@ -26,7 +24,6 @@ class MinimaxPlayer:
         return False, board
 
     def _check_winner(self, board: np.ndarray, player: int) -> bool:
-        """Check if the specified player has won"""
         # Check horizontal
         for row in range(6):
             for col in range(4):
@@ -54,10 +51,6 @@ class MinimaxPlayer:
         return False
 
     def _evaluate_window(self, window: List[int], player: int) -> int:
-        """
-        Evaluate a window of 4 positions
-        Returns a score based on the pieces configuration
-        """
         opponent = 3 - player  # Convert between 1 and 2
 
         score = 0
@@ -71,17 +64,12 @@ class MinimaxPlayer:
             score += 5
         elif piece_count == 2 and empty_count == 2:
             score += 2
-
         if opponent_count == 3 and empty_count == 1:
             score -= 4
 
         return score
 
     def _evaluate_position(self, board: np.ndarray, player: int) -> int:
-        """
-        Evaluate the current board position
-        Returns a score from the perspective of the specified player
-        """
         score = 0
 
         # Center column preference
@@ -188,3 +176,22 @@ class MinimaxPlayer:
         # Use minimax to find the best move
         _, best_col = self._minimax(board, self.depth, -np.inf, np.inf, True, 2)
         return best_col
+
+    def print_timing_stats(self):
+        print("\nTiming Statistics:")
+        for method in [
+            self.choose_action,
+            self._minimax,
+            self._evaluate_position,
+            self._check_winner,
+            self._drop_piece,
+        ]:
+            times = method.time_stats[method.__name__]
+            if times:
+                avg_time = sum(times) / len(times)
+                max_time = max(times)
+                calls = len(times)
+                print(f"{method.__name__}:")
+                print(f"  Calls: {calls}")
+                print(f"  Average time: {avg_time * 1000:.3f}ms")
+                print(f"  Max time: {max_time * 1000:.3f}ms")

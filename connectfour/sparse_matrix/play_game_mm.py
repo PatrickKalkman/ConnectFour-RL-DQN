@@ -10,7 +10,7 @@ def play_against_agent(model_path: str = None):
     if model_path is None:
         # Try different potential model paths
         potential_paths = [
-            "./models/agent_mm.npy",
+            "./models/agent.npy",
         ]
 
         for path in potential_paths:
@@ -31,9 +31,9 @@ def play_against_agent(model_path: str = None):
     agent.epsilon = 0  # Set epsilon to 0 to make agent play deterministically
 
     try:
-        agent.q_table = agent.q_table.load(model_path)
+        agent.load(model_path)
         print(
-            f"Successfully loaded agent with Q-table size: {len(agent.q_table.q_values)}"
+            f"Successfully loaded agent with Q-table size: {agent.q_table.get_size()}"
         )
         if agent.q_table.get_size() == 0:
             print("Warning: Q-table is empty! The agent won't play optimally.")
@@ -83,10 +83,9 @@ def play_against_agent(model_path: str = None):
                         print("Invalid move! Try again.")
                 except ValueError:
                     print("Please enter a number between 0 and 6.")
-
-        else:  # AI agent (now player_0)
+        else:
             print("\nAgent is thinking...")
-            time.sleep(0.5)  # Add a small delay for better visualization
+            time.sleep(0.5)
             action = agent.choose_action(observation)
 
             # Show agent's chosen move and its value
@@ -97,7 +96,6 @@ def play_against_agent(model_path: str = None):
 
     env.close()
 
-    # Ask if want to play again
     play_again = input("\nWould you like to play again? (y/n): ")
     if play_again.lower() == "y":
         play_against_agent(model_path)
