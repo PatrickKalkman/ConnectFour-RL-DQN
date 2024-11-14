@@ -17,7 +17,7 @@ class TrainingConfig:
     save_interval: int = 50_000
     render_interval: int = 50_000
     render_delay: float = 0.1
-    model_path: str = "models/agent.npy"
+    model_path: str = "models/agent_random.npy"
     metrics_path: str = "metrics/training_metrics_random.json"
 
 

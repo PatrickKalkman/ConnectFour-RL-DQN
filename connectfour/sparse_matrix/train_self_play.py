@@ -17,7 +17,8 @@ class TrainingConfig:
     save_interval: int = 1000
     render_interval: int = 20_000
     render_delay: float = 0.5
-    model_path: str = "models/agent.npy"
+    model_path: str = "models/agent_self_play.npy"
+    model_random_path: str = "models/agent_random.npy"
     metrics_path: str = "metrics/training_metrics_self_play.json"
 
 
@@ -30,6 +31,7 @@ class Trainer:
         # Create two instances of the agent for self-play
         self.agent1 = QLearningAgent()  # player_0
         self.agent2 = QLearningAgent()  # player_1
+        self.agent1.load(self.config.model_path)
         self.recent_results = deque(maxlen=1000)
         os.makedirs(os.path.dirname(self.config.model_path), exist_ok=True)
         os.makedirs(os.path.dirname(self.config.metrics_path), exist_ok=True)
