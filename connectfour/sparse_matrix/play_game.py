@@ -10,7 +10,7 @@ def play_against_agent(model_path: str = None):
     if model_path is None:
         # Try different potential model paths
         potential_paths = [
-            "./models/agent_mm.npy",
+            "./models/agent_self_play.npy",
         ]
 
         for path in potential_paths:

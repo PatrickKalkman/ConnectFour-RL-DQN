@@ -1,5 +1,6 @@
 import pytest
 from pettingzoo.classic import connect_four_v3
+
 from connectfour.sparse_matrix import SparseQTable
 
 

@@ -9,7 +9,9 @@ from connectfour.sparse_matrix.sparse_q_table import SparseQTable
 @dataclass
 class AgentConfig:
     learning_rate: float = 0.2  # Increased from 0.1 for faster learning
-    discount_factor: float = 0.87  # Reduced from 0.99 to focus more on immediate rewards
+    discount_factor: float = (
+        0.87  # Reduced from 0.99 to focus more on immediate rewards
+    )
     initial_epsilon: float = 1.0
     epsilon_decay: float = 0.999991  # Slower decay
     min_epsilon: float = 0.15  # Increased from 0.01 for more exploration

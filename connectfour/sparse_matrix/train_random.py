@@ -6,19 +6,20 @@ from dataclasses import dataclass
 
 import numpy as np
 from pettingzoo.classic import connect_four_v3
-
-from connectfour.sparse_matrix.q_learning_agent import QLearningAgent
+from q_learning_agent import QLearningAgent
 
 
 @dataclass
 class TrainingConfig:
     episodes: int = 500_000
-    log_interval: int = 1000
+    log_interval: int = 5000
     save_interval: int = 50_000
-    render_interval: int = 50_000
+    render_interval: int = 600_000
     render_delay: float = 0.1
-    model_path: str = "models/agent_random.npy"
-    metrics_path: str = "metrics/training_metrics_random.json"
+    model_path: str = "models/agent_random_second_player.npy"  # Updated path
+    metrics_path: str = (
+        "metrics/training_metrics_random_second_player.json"  # Updated path
+    )
 
 
 class Trainer:
@@ -56,7 +57,7 @@ class Trainer:
     def train(self):
         for episode in range(self.config.episodes):
             render_mode = (
-                "human" if episode % self.config.render_interval == 0 else None
+                "human" if episode % self.config.render_interval == 0 and episode > 0 else None
             )
             self.env = connect_four_v3.env(render_mode=render_mode)
             self.env.reset()
@@ -69,14 +70,16 @@ class Trainer:
             for agent in self.env.agent_iter():
                 observation, reward, termination, truncation, info = self.env.last()
 
-                # Convert opponent's turn rewards to our perspective
-                if agent != "player_0":
-                    reward = -reward
+                # Convert rewards to second player's perspective
+                if agent == "player_1":  # This is our agent now
+                    reward = reward  # Keep reward as is
+                else:
+                    reward = -reward  # Invert first player's reward
 
                 if termination or truncation:
                     action = None
                     # Learn from the final state
-                    if previous_observation is not None and agent == "player_0":
+                    if previous_observation is not None and agent == "player_1":
                         self.agent.learn(
                             previous_observation,
                             previous_action,
@@ -87,7 +90,7 @@ class Trainer:
                     self._update_stats(reward)
                 else:
                     # Learn from previous state-action pair if it exists
-                    if previous_observation is not None and agent == "player_0":
+                    if previous_observation is not None and agent == "player_1":
                         self.agent.learn(
                             previous_observation,
                             previous_action,
@@ -96,12 +99,12 @@ class Trainer:
                             False,  # Game is not done
                         )
 
-                    if agent == "player_0":  # Our learning agent
+                    if agent == "player_1":  # Our learning agent (now second player)
                         action = self.agent.choose_action(observation)
                         previous_observation = observation
                         previous_action = action
                         episode_reward += reward
-                    else:  # Random opponent
+                    else:  # Random opponent (first player)
                         mask = observation["action_mask"]
                         valid_actions = [i for i in range(len(mask)) if mask[i] == 1]
                         action = np.random.choice(valid_actions)
@@ -146,7 +149,7 @@ class Trainer:
         self.metrics_history["epsilon"].append(self.agent.epsilon)
         self.metrics_history["draws_ratio"].append(draws_ratio)
 
-        # Calculate learning progress (new states since last interval)
+        # Calculate learning progress
         if len(self.metrics_history["q_table_size"]) > 1:
             new_states = q_table_size - self.metrics_history["q_table_size"][-2]
             learning_progress = (
@@ -163,6 +166,7 @@ class Trainer:
         print(f"Wins: {self.wins}, Losses: {self.losses}, Draws: {self.draws}")
         print(f"Epsilon: {self.agent.epsilon:.2f}")
         print(f"Q-table size: {q_table_size}")
+        print("Playing as Second Player")  # Added indicator
         print("-" * 50)
 
     def save_metrics(self):
@@ -172,7 +176,6 @@ class Trainer:
 
 def main():
     config = TrainingConfig()
-
     trainer = Trainer(config)
     trainer.train()
 

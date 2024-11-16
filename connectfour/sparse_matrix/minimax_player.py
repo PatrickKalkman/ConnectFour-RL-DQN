@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+
 class MinimaxPlayer:
     def __init__(self, depth: int = 4):
         self.depth = depth  # How many moves to look ahead
