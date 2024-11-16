@@ -57,7 +57,9 @@ class Trainer:
     def train(self):
         for episode in range(self.config.episodes):
             render_mode = (
-                "human" if episode % self.config.render_interval == 0 and episode > 0 else None
+                "human"
+                if episode % self.config.render_interval == 0 and episode > 0
+                else None
             )
             self.env = connect_four_v3.env(render_mode=render_mode)
             self.env.reset()
