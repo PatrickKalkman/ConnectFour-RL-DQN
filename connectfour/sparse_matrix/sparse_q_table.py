@@ -7,7 +7,7 @@ import numpy as np
 class SparseQTable:
     def __init__(self, default_value: float = 0.0):
         self.q_values: Dict[Tuple, np.ndarray] = defaultdict(
-            lambda: np.full(7, default_value)  # 7 possible actions in Connect Four
+            lambda: np.full(7, default_value)
         )
         self.default_value = default_value
 
@@ -41,11 +41,6 @@ class SparseQTable:
 
     def get_size(self) -> int:
         return len(self.q_values)
-
-    def decay_epsilon(self) -> None:
-        self.epsilon = max(
-            self.config.min_epsilon, self.epsilon * self.config.epsilon_decay
-        )
 
     def save(self, filename: str) -> None:
         # Convert defaultdict to regular dict for saving
