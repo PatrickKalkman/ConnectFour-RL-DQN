@@ -13,7 +13,7 @@ from connectfour.deep_q_network.dqn_agent import DQNAgent
 
 @dataclass
 class TrainingConfig:
-    episodes: int = 100_000
+    episodes: int = 300_000
     log_interval: int = 250
     save_interval: int = 10_000
     render_interval: int = 600_000
@@ -21,13 +21,13 @@ class TrainingConfig:
     model_path: str = "models/dqn_agent_random_first_player.pth"
     metrics_path: str = "metrics/dqn_training_metrics_random_first_player"
     # DQN specific parameters
-    batch_size: int = 128
-    memory_capacity: int = 500_000
-    learning_rate: float = 5e-5
-    gamma: float = 0.95
+    batch_size: int = 256
+    memory_capacity: int = 750_000
+    learning_rate: float = 1e-4
+    gamma: float = 0.98
     epsilon_start: float = 1.0
-    epsilon_end: float = 0.05
-    epsilon_decay: float = 0.99999
+    epsilon_end: float = 0.1
+    epsilon_decay: float = 0.999995
 
 
 class DQNTrainer:
