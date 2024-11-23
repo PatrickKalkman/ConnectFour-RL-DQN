@@ -109,6 +109,7 @@ class DQNTrainer:
         return [i for i, valid in enumerate(obs["action_mask"]) if valid]
 
     def _update_stats(self, reward: float):
+        """Debug version of stats update"""
         if reward > 0:
             self.wins += 1
             self.recent_results.append("W")
@@ -120,78 +121,87 @@ class DQNTrainer:
             self.recent_results.append("D")
 
     def train(self):
-        training_interval = 4  # Train every N steps instead of every step
+        training_interval = 4
         steps_since_train = 0
         episode_times = []
-        previous_action = None
 
         for episode in range(self.config.episodes):
             episode_start = time.time()
-            render_mode = (
-                "human"
-                if episode % self.config.render_interval == 0 and episode > 0
-                else None
-            )
-            self.env = connect_four_v3.env(render_mode=render_mode)
+            self.env = connect_four_v3.env(render_mode=None)
             self.env.reset()
 
             episode_loss = 0
             training_steps = 0
             previous_state = None
+            previous_action = None
+            game_done = False  # Flag to track if game outcome was already recorded
 
             for agent in self.env.agent_iter():
                 observation, reward, termination, truncation, _ = self.env.last()
-                current_state = self._preprocess_observation(observation)
 
-                if termination or truncation:
-                    action = None
-                    if previous_state is not None and agent == "player_0":
-                        self.agent.memory.push(
-                            previous_state, previous_action, reward, current_state, True
-                        )
-                        steps_since_train += 1
-                        if steps_since_train >= training_interval:
-                            loss = self.agent.train_step()
-                            if loss is not None:
-                                episode_loss += loss
-                                training_steps += 1
-                            steps_since_train = 0
+                # Only process reward for our agent and only once per game
+                if (
+                    (termination or truncation)
+                    and not game_done
+                    and agent == "player_0"
+                ):
                     self._update_stats(reward)
-                else:
-                    if previous_state is not None and agent == "player_0":
-                        self.agent.memory.push(
-                            previous_state,
-                            previous_action,
-                            reward,
-                            current_state,
-                            False,
-                        )
-                        steps_since_train += 1
-                        if steps_since_train >= training_interval:
-                            loss = self.agent.train_step()
-                            if loss is not None:
-                                episode_loss += loss
-                                training_steps += 1
-                            steps_since_train = 0
+                    game_done = True
 
-                    if agent == "player_0":  # DQN agent
+                # Convert rewards for agent perspective
+                if agent == "player_0":  # Our agent
+                    current_state = self._preprocess_observation(observation)
+
+                    if termination or truncation:
+                        action = None
+                        if previous_state is not None:
+                            self.agent.memory.push(
+                                previous_state,
+                                previous_action,
+                                reward,  # Use original reward
+                                current_state,
+                                True,
+                            )
+                            steps_since_train += 1
+                            if steps_since_train >= training_interval:
+                                loss = self.agent.train_step()
+                                if loss is not None:
+                                    episode_loss += loss
+                                    training_steps += 1
+                                steps_since_train = 0
+                    else:
+                        if previous_state is not None:
+                            self.agent.memory.push(
+                                previous_state,
+                                previous_action,
+                                reward,  # Use original reward
+                                current_state,
+                                False,
+                            )
+                            steps_since_train += 1
+                            if steps_since_train >= training_interval:
+                                loss = self.agent.train_step()
+                                if loss is not None:
+                                    episode_loss += loss
+                                    training_steps += 1
+                                steps_since_train = 0
+
                         valid_moves = self._get_valid_moves(observation)
                         action = self.agent.select_action(current_state, valid_moves)
                         previous_state = current_state
                         previous_action = action
-                    else:  # Random opponent
+                else:  # Random opponent
+                    if not (termination or truncation):
                         valid_moves = self._get_valid_moves(observation)
                         action = np.random.choice(valid_moves)
+                    else:
+                        action = None
 
                 self.env.step(action)
 
-            if render_mode == "human":
-                time.sleep(self.config.render_delay)
-
-            # Calculate FPS and log progress
+            # End of episode processing
             episode_end = time.time()
-            episode_duration = episode_end - episode_start
-            episode_times.append(episode_duration)
+            episode_times.append(episode_end - episode_start)
 
             if episode % self.config.log_interval == 0 and episode > 0:
                 recent_episodes = min(1000, episode)
