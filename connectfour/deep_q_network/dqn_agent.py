@@ -53,9 +53,6 @@ class DQNAgent:
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
 
-        print("state_dim:", state_dim)
-        print("state_dim[0]:", state_dim[0])
-
         # Create online and target networks
         self.policy_net = Connect4DQN(state_dim[0]).to(device)
         self.target_net = Connect4DQN(state_dim[0]).to(device)

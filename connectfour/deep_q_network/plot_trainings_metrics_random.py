@@ -106,14 +106,14 @@ class MetricsVisualizer:
         plt.tight_layout()
 
         # Save the plot
-        plot_path = save_dir / "training_metrics_seaborn.png"
+        plot_path = save_dir / "training_metrics_seaborn_batch.png"
         plt.savefig(plot_path, bbox_inches="tight", dpi=300)
         plt.close()
         print(f"\nPlot saved to: {plot_path}")
 
 
 def main():
-    metrics_path = "metrics/dqn_training_metrics_random_first_player_20000.json"
+    metrics_path = "metrics/dqn_training_metrics_random_first_player_last.json"
     visualizer = MetricsVisualizer(metrics_path)
 
     # Print detailed debug information
