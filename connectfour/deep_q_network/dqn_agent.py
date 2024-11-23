@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 import torch
 import torch.optim as optim
 from torch.nn.functional import mse_loss
@@ -54,6 +55,9 @@ class DQNAgent:
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
 
+        print("state_dim:", state_dim)
+        print("state_dim[0]:", state_dim[0])
+
         # Create online and target networks
         self.policy_net = Connect4DQN(state_dim[0]).to(device)
         self.target_net = Connect4DQN(state_dim[0]).to(device)
@@ -70,31 +74,24 @@ class DQNAgent:
         self.training_steps = 0
 
     def select_action(self, state, valid_moves):
-        """
-        Select action using ε-greedy policy
+        """Select action using epsilon-greedy policy"""
+        if np.random.random() > self.epsilon:
+            with torch.no_grad():
+                if isinstance(state, torch.Tensor):
+                    state_tensor = state.unsqueeze(0)  # Already on device
+                else:
+                    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
 
-        Args:
-            state: Current game state
-            valid_moves: List of valid moves (columns)
+                q_values = self.policy_net(state_tensor)
 
-        Returns:
-            int: Selected action (column)
-        """
-        if random.random() < self.epsilon:
-            # Exploration: random valid move
-            return random.choice(valid_moves)
+                # Mask invalid moves
+                mask = torch.ones(self.action_dim, device=self.device) * float("-inf")
+                mask[valid_moves] = 0
+                q_values = q_values + mask
 
-        # Exploitation: best valid move according to Q-values
-        with torch.no_grad():
-            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-            q_values = self.policy_net(state_tensor)
-
-            # Mask invalid moves with large negative values
-            mask = torch.ones(self.action_dim) * float("-inf")
-            mask[valid_moves] = 0
-            q_values = q_values + mask.to(self.device)
-
-            return q_values.argmax().item()
+                return q_values.max(1)[1].item()
+        else:
+            return np.random.choice(valid_moves)
 
     def train_step(self):
         """
@@ -155,7 +152,9 @@ class DQNAgent:
             self.soft_update_target_network()
 
         # Decay epsilon
-        self.epsilon = min(1.0, max(self.epsilon_end, self.epsilon * self.epsilon_decay))
+        self.epsilon = min(
+            1.0, max(self.epsilon_end, self.epsilon * self.epsilon_decay)
+        )
 
         return loss.item()
 

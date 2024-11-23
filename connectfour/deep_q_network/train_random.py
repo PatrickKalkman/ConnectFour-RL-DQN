@@ -21,7 +21,7 @@ class TrainingConfig:
     model_path: str = "models/dqn_agent_random_first_player.pth"
     metrics_path: str = "metrics/dqn_training_metrics_random_first_player"
     # DQN specific parameters
-    batch_size: int = 256
+    batch_size: int = 64
     memory_capacity: int = 750_000
     learning_rate: float = 1e-4
     gamma: float = 0.98
@@ -59,15 +59,13 @@ class DQNTrainer:
             "epsilon": [],
             "draws_ratio": [],
             "loss": [],
+            "fps": [],  # Added FPS tracking
         }
 
-        # Initialize environment to get dimensions
+        # Initialize environment dimensions
         temp_env = connect_four_v3.env()
         temp_env.reset()
-
-        # Get state dimensions from observation space
         obs, _, _, _, _ = temp_env.last()
-        # board_shape = obs["observation"].shape
         self.state_dim = (3, 6, 7)  # Channels, Height, Width
         self.action_dim = temp_env.action_space("player_1").n
         temp_env.close()
@@ -87,25 +85,24 @@ class DQNTrainer:
         )
 
     def _preprocess_observation(self, obs):
-        """Convert PettingZoo observation to DQN input format"""
-        board = obs["observation"]  # Shape is (6, 7, 2)
+        """Faster preprocessing with less memory allocation"""
+        board = torch.from_numpy(obs["observation"][:, :, 0]).to(self.device)
+        # Reuse tensors instead of creating new ones
+        if not hasattr(self, "valid_moves_tensor"):
+            self.valid_moves_tensor = torch.zeros((6, 7), device=self.device)
 
-        # We'll use the first channel of the observation
-        board_2d = board[:, :, 0]  # Now shape is (6, 7)
+        self.valid_moves_tensor.zero_()
+        self.valid_moves_tensor[
+            0, [i for i, valid in enumerate(obs["action_mask"]) if valid]
+        ] = 1
 
-        # Create 3-channel representation
-        player_pieces = (board_2d == 1).astype(np.float32)
-        opponent_pieces = (board_2d == -1).astype(np.float32)
-
-        # Create valid moves channel with same shape as board
-        valid_moves = np.zeros((6, 7), dtype=np.float32)
-        for i, valid in enumerate(obs["action_mask"]):
-            if valid:
-                valid_moves[0, i] = 1  # Only mark the top row position
-
-        # Stack channels
-        state = np.stack([player_pieces, opponent_pieces, valid_moves])
-        return state
+        return torch.stack(
+            [
+                (board == 1).float(),  # Player pieces
+                (board == -1).float(),  # Opponent pieces
+                self.valid_moves_tensor,
+            ]
+        )
 
     def _get_valid_moves(self, obs):
         """Get list of valid moves from observation"""
@@ -123,8 +120,13 @@ class DQNTrainer:
             self.recent_results.append("D")
 
     def train(self):
+        training_interval = 4  # Train every N steps instead of every step
+        steps_since_train = 0
+        episode_times = []
+        previous_action = None
+
         for episode in range(self.config.episodes):
-            # Set render mode
+            episode_start = time.time()
             render_mode = (
                 "human"
                 if episode % self.config.render_interval == 0 and episode > 0
@@ -132,40 +134,30 @@ class DQNTrainer:
             )
             self.env = connect_four_v3.env(render_mode=render_mode)
             self.env.reset()
-            episode_reward = 0
+
             episode_loss = 0
             training_steps = 0
-
-            # Keep track of previous state and action for learning
             previous_state = None
-            previous_action = None
 
             for agent in self.env.agent_iter():
-                observation, reward, termination, truncation, info = self.env.last()
-
-                # Convert rewards for second player perspective
-                if agent == "player_0":  # Our agent (second player)
-                    reward = reward
-                else:
-                    reward = -reward
-
-                # Preprocess state
+                observation, reward, termination, truncation, _ = self.env.last()
                 current_state = self._preprocess_observation(observation)
 
                 if termination or truncation:
                     action = None
-                    # Learn from the final state
                     if previous_state is not None and agent == "player_0":
                         self.agent.memory.push(
                             previous_state, previous_action, reward, current_state, True
                         )
-                        loss = self.agent.train_step()
-                        if loss is not None:
-                            episode_loss += loss
-                            training_steps += 1
+                        steps_since_train += 1
+                        if steps_since_train >= training_interval:
+                            loss = self.agent.train_step()
+                            if loss is not None:
+                                episode_loss += loss
+                                training_steps += 1
+                            steps_since_train = 0
                     self._update_stats(reward)
                 else:
-                    # Learn from previous state-action pair if it exists
                     if previous_state is not None and agent == "player_0":
                         self.agent.memory.push(
                             previous_state,
@@ -174,18 +166,20 @@ class DQNTrainer:
                             current_state,
                             False,
                         )
-                        loss = self.agent.train_step()
-                        if loss is not None:
-                            episode_loss += loss
-                            training_steps += 1
+                        steps_since_train += 1
+                        if steps_since_train >= training_interval:
+                            loss = self.agent.train_step()
+                            if loss is not None:
+                                episode_loss += loss
+                                training_steps += 1
+                            steps_since_train = 0
 
-                    if agent == "player_0":  # Our DQN agent (second player)
+                    if agent == "player_0":  # DQN agent
                         valid_moves = self._get_valid_moves(observation)
                         action = self.agent.select_action(current_state, valid_moves)
                         previous_state = current_state
                         previous_action = action
-                        episode_reward += reward
-                    else:  # Random opponent (second player)
+                    else:  # Random opponent
                         valid_moves = self._get_valid_moves(observation)
                         action = np.random.choice(valid_moves)
 
@@ -194,12 +188,20 @@ class DQNTrainer:
             if render_mode == "human":
                 time.sleep(self.config.render_delay)
 
-            # Log progress
-            if episode % self.config.log_interval == 0:
-                avg_loss = episode_loss / training_steps if training_steps > 0 else 0
-                self._log_progress(episode, avg_loss)
+            # Calculate FPS and log progress
+            episode_end = time.time()
+            episode_duration = episode_end - episode_start
+            episode_times.append(episode_duration)
 
-            # Save model
+            if episode % self.config.log_interval == 0 and episode > 0:
+                recent_episodes = min(1000, episode)
+                recent_times = episode_times[-recent_episodes:]
+                avg_time = sum(recent_times) / len(recent_times)
+                fps = 1.0 / avg_time if avg_time > 0 else 0
+
+                avg_loss = episode_loss / training_steps if training_steps > 0 else 0
+                self._log_progress(episode, avg_loss, fps)
+
             if episode % self.config.save_interval == 0:
                 self.agent.save(self.config.model_path)
                 self.save_metrics(episode)
@@ -208,7 +210,7 @@ class DQNTrainer:
 
         self.save_metrics("last")
 
-    def _log_progress(self, episode: int, loss: float):
+    def _log_progress(self, episode: int, loss: float, fps: float):
         # Calculate metrics
         total_games = self.wins + self.losses + self.draws
         win_rate = self.wins / total_games if total_games > 0 else 0
@@ -219,7 +221,6 @@ class DQNTrainer:
         recent_percentage = (
             (recent_wins / recent_total * 100) if recent_total > 0 else 0
         )
-
         draws_ratio = (self.draws / total_games * 100) if total_games > 0 else 0
 
         # Store metrics
@@ -229,28 +230,29 @@ class DQNTrainer:
         self.metrics_history["epsilon"].append(self.agent.epsilon)
         self.metrics_history["draws_ratio"].append(draws_ratio)
         self.metrics_history["loss"].append(loss)
+        self.metrics_history["fps"].append(fps)
 
-        # Print current metrics
+        # Print metrics
+        print(f"FPS: {fps:.2f}")
         print(f"Episode: {episode}")
         print(f"Overall Win Rate: {win_rate:.2f} ({win_percentage:.1f}%)")
         print(f"Last {recent_total} games: {recent_percentage:.1f}%")
         print(f"Wins: {self.wins}, Losses: {self.losses}, Draws: {self.draws}")
         print(f"Epsilon: {self.agent.epsilon:.3f}")
 
-        # Enhanced loss reporting
-        if loss > 0:  # Only log when we have valid loss
+        if loss > 0:
             if len(self.metrics_history["loss"]) > 1:
                 last_100_losses = self.metrics_history["loss"][-100:]
-                avg_loss = sum(last_100_losses) / len(last_100_losses)
-                min_loss = min(last_100_losses)
-                max_loss = max(last_100_losses)
                 print(f"Current Loss: {loss:.6f}")
-                print(f"Avg Loss (last 100): {avg_loss:.6f}")
-                print(f"Min/Max Loss (last 100): {min_loss:.6f}/{max_loss:.6f}")
+                print(
+                    f"Avg Loss (last 100): {sum(last_100_losses) / len(last_100_losses):.6f}"
+                )
+                print(
+                    f"Min/Max Loss (last 100): {min(last_100_losses):.6f}/{max(last_100_losses):.6f}"
+                )
             else:
                 print(f"Initial Loss: {loss:.6f}")
 
-        print("Playing as First Player")
         print("-" * 50)
 
     def save_metrics(self, episode):
