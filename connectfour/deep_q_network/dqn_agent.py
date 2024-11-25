@@ -3,7 +3,8 @@ import torch
 import torch.optim as optim
 from torch.nn.functional import mse_loss
 
-from connectfour.deep_q_network.connect_four_dqn import Connect4DQN
+# from connectfour.deep_q_network.connect_four_dqn_convolutional import Connect4DQN
+from connectfour.deep_q_network.connect_four_dqn_dense import Connect4DQN
 from connectfour.deep_q_network.replay_memory import ReplayMemory
 
 

@@ -91,7 +91,9 @@ class DQNTrainer:
         )
 
         print(f"Loading pretrained model from {config.pretrained_model_path}")
-        checkpoint = torch.load(config.pretrained_model_path, map_location=self.device, weights_only=True)
+        checkpoint = torch.load(
+            config.pretrained_model_path, map_location=self.device, weights_only=True
+        )
         self.agent.policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
         self.agent.target_net.load_state_dict(checkpoint["target_net_state_dict"])
 
@@ -263,12 +265,16 @@ class DQNTrainer:
 
         recent_wins = self.recent_results.count("W")
         recent_total = len(self.recent_results)
-        recent_percentage = (recent_wins / recent_total * 100) if recent_total > 0 else 0
+        recent_percentage = (
+            (recent_wins / recent_total * 100) if recent_total > 0 else 0
+        )
         draws_ratio = (self.draws / total_games * 100) if total_games > 0 else 0
 
         # New metrics
-        if hasattr(self, 'moves_history'):
-            avg_moves = sum(self.moves_history[-1000:]) / len(self.moves_history[-1000:])
+        if hasattr(self, "moves_history"):
+            avg_moves = sum(self.moves_history[-1000:]) / len(
+                self.moves_history[-1000:]
+            )
         else:
             self.moves_history = []
             avg_moves = 0
@@ -284,7 +290,7 @@ class DQNTrainer:
                 break
 
         # Win rate difference from previous log interval
-        if hasattr(self, 'previous_win_rate'):
+        if hasattr(self, "previous_win_rate"):
             win_rate_improvement = recent_percentage - self.previous_win_rate
         else:
             win_rate_improvement = 0
@@ -307,7 +313,9 @@ class DQNTrainer:
         print(f"Episode: {episode}")
         print(f"Overall Win Rate: {win_rate:.2f} ({win_percentage:.1f}%)")
         print(f"Last {recent_total} games: {recent_percentage:.1f}%")
-        print(f"Win Rate Change: {win_rate_improvement:+.1f}%")  # + indicates improvement
+        print(
+            f"Win Rate Change: {win_rate_improvement:+.1f}%"
+        )  # + indicates improvement
         print(f"Current Win Streak: {current_streak}")
         print(f"Max Win Streak: {max_streak}")
         print(f"Avg Moves per Game: {avg_moves:.1f}")
@@ -319,8 +327,12 @@ class DQNTrainer:
             if len(self.metrics_history["loss"]) > 1:
                 last_100_losses = self.metrics_history["loss"][-100:]
                 print(f"Current Loss: {loss:.6f}")
-                print(f"Avg Loss (last 100): {sum(last_100_losses) / len(last_100_losses):.6f}")
-                print(f"Min/Max Loss (last 100): {min(last_100_losses):.6f}/{max(last_100_losses):.6f}")
+                print(
+                    f"Avg Loss (last 100): {sum(last_100_losses) / len(last_100_losses):.6f}"
+                )
+                print(
+                    f"Min/Max Loss (last 100): {min(last_100_losses):.6f}/{max(last_100_losses):.6f}"
+                )
             else:
                 print(f"Initial Loss: {loss:.6f}")
 
