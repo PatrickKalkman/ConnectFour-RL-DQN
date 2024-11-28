@@ -10,7 +10,7 @@ from connectfour.deep_q_network.dqn_agent import DQNAgent
 def play_against_agent(model_path: str = None):
     if model_path is None:
         potential_paths = [
-            "./models/dqn_agent_random_first_player.pth",
+            "./models/dqn_agent_self_play.pth",
         ]
 
         for path in potential_paths:
