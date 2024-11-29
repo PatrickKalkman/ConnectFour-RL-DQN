@@ -1,8 +1,8 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.functional import mse_loss
-
 
 # from connectfour.deep_q_network.connect_four_dqn_convolutional import Connect4DQN
 from connectfour.deep_q_network.connect_four_dqn_dualing_resnet import Connect4DQN
@@ -23,123 +23,39 @@ class DQNAgent:
         epsilon_end=0.01,
         epsilon_decay=0.995,
         tau=1e-3,
+        temperature=1.0,
     ):
         self.device = device
         self.action_dim = action_dim
         self.batch_size = batch_size
         self.gamma = gamma
         self.tau = tau
+        self.temperature = temperature
 
-        # Initialize epsilon for ε-greedy policy
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
 
-        # Create online and target networks
         self.policy_net = Connect4DQN(state_dim[0]).to(device)
         self.target_net = Connect4DQN(state_dim[0]).to(device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
 
-        # Initialize optimizer
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
-
-        # Initialize scheduler
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer,
-            mode="min",
-            factor=0.5,
-            patience=1000,
-            verbose=True,
-            min_lr=1e-6,
-        )
-
-        # Initialize replay memory
-        self.memory = ReplayMemory(memory_capacity, device)
-
-        # Training step counter
         self.training_steps = 0
-
-        # For tracking average loss
+        self.memory = ReplayMemory(memory_capacity, device)
         self.loss_window = []
         self.loss_window_size = 100
 
-    def train_step(self):
-        """
-        Perform one step of training
-        Returns:
-            float: Loss value if training occurred, None otherwise
-        """
-        if not self.memory.can_sample(self.batch_size):
-            return None
-
-        # Sample batch from memory
-        states, actions, rewards, next_states, dones = self.memory.sample(
-            self.batch_size
-        )
-
-        # Ensure states have correct shape
-        if len(states.shape) != 4:
-            raise ValueError(
-                f"Expected states to have shape (batch_size, channels, height, width), got {states.shape}"
-            )
-
-        # Compute current Q values
-        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1))
-
-        # Compute next Q values
-        with torch.no_grad():
-            next_q_values = self.target_net(next_states).max(1)[0]
-            # Set Q-value to 0 for terminal states
-            next_q_values[dones] = 0.0
-
-        # Compute target Q values
-        target_q_values = rewards + (self.gamma * next_q_values)
-
-        # Compute loss
-        loss = mse_loss(current_q_values, target_q_values.unsqueeze(1))
-
-        # Optimize the policy network
-        self.optimizer.zero_grad()
-        loss.backward()
-        # Clip gradients to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
-        self.optimizer.step()
-
-        loss_value = loss.item()
-
-        # Update loss window
-        self.loss_window.append(loss_value)
-        if len(self.loss_window) > self.loss_window_size:
-            self.loss_window.pop(0)
-
-        # Update scheduler with average loss every 100 steps
-        if self.training_steps % 100 == 0 and len(self.loss_window) > 0:
-            avg_loss = sum(self.loss_window) / len(self.loss_window)
-            self.scheduler.step(avg_loss)
-
-        # Increment step counter
-        self.training_steps += 1
-
-        # Update target network
-        if self.training_steps % 100 == 0:
-            self.soft_update_target_network()
-
-        # Decay epsilon
-        self.epsilon = min(
-            1.0, max(self.epsilon_end, self.epsilon * self.epsilon_decay)
-        )
-
-        return loss_value
-
     def select_action(self, state, valid_moves):
-        """Select action using epsilon-greedy policy"""
         if np.random.random() > self.epsilon:
             with torch.no_grad():
-                if isinstance(state, torch.Tensor):
-                    state_tensor = state.unsqueeze(0)  # Already on device
-                else:
-                    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                state_tensor = (
+                    state
+                    if isinstance(state, torch.Tensor)
+                    else torch.FloatTensor(state).to(self.device)
+                )
+                state_tensor = state_tensor.unsqueeze(0)
 
                 q_values = self.policy_net(state_tensor)
 
@@ -148,43 +64,89 @@ class DQNAgent:
                 mask[valid_moves] = 0
                 q_values = q_values + mask
 
-                return q_values.max(1)[1].item()
+                if self.temperature != 1.0:
+                    # Apply temperature scaling
+                    scaled_q_values = q_values / self.temperature
+                    probs = F.softmax(scaled_q_values, dim=1)
+                    action = torch.multinomial(probs, 1).item()
+                else:
+                    action = q_values.max(1)[1].item()
+
+                return action
         else:
             return np.random.choice(valid_moves)
 
-    def save(self, path):
-        """Save model parameters"""
-        torch.save(
-            {
-                "policy_net_state_dict": self.policy_net.state_dict(),
-                "target_net_state_dict": self.target_net.state_dict(),
-                "optimizer_state_dict": self.optimizer.state_dict(),
-                "scheduler_state_dict": self.scheduler.state_dict(),
-                "epsilon": self.epsilon,
-                "training_steps": self.training_steps,
-                "loss_window": self.loss_window,
-            },
-            path,
+    def train_step(self):
+        if not self.memory.can_sample(self.batch_size):
+            return None
+
+        states, actions, rewards, next_states, dones = self.memory.sample(
+            self.batch_size
         )
 
-    def load(self, path):
-        """Load model parameters"""
-        checkpoint = torch.load(path)
-        self.policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
-        self.target_net.load_state_dict(checkpoint["target_net_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        if "scheduler_state_dict" in checkpoint:
-            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        self.epsilon = checkpoint["epsilon"]
-        self.training_steps = checkpoint["training_steps"]
-        if "loss_window" in checkpoint:
-            self.loss_window = checkpoint["loss_window"]
+        if len(states.shape) != 4:
+            raise ValueError(
+                f"Expected states shape (batch_size, channels, height, width), got {states.shape}"
+            )
+
+        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1))
+
+        with torch.no_grad():
+            next_q_values = self.target_net(next_states)
+            if self.temperature != 1.0:
+                next_q_values = next_q_values / self.temperature
+            next_q_values = next_q_values.max(1)[0]
+            next_q_values[dones] = 0.0
+
+        target_q_values = rewards + (self.gamma * next_q_values)
+        loss = mse_loss(current_q_values, target_q_values.unsqueeze(1))
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
+        self.optimizer.step()
+
+        loss_value = loss.item()
+        self.loss_window.append(loss_value)
+        if len(self.loss_window) > self.loss_window_size:
+            self.loss_window.pop(0)
+
+        self.training_steps += 1
+        if self.training_steps % 100 == 0:
+            self.soft_update_target_network()
+
+        self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
+
+        return loss_value
 
     def soft_update_target_network(self):
-        """Soft update of target network parameters"""
         for target_param, policy_param in zip(
             self.target_net.parameters(), self.policy_net.parameters()
         ):
             target_param.data.copy_(
                 self.tau * policy_param.data + (1.0 - self.tau) * target_param.data
             )
+
+    def save(self, path):
+        torch.save(
+            {
+                "policy_net_state_dict": self.policy_net.state_dict(),
+                "target_net_state_dict": self.target_net.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "epsilon": self.epsilon,
+                "training_steps": self.training_steps,
+                "loss_window": self.loss_window,
+                "temperature": self.temperature,
+            },
+            path,
+        )
+
+    def load(self, path):
+        checkpoint = torch.load(path)
+        self.policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
+        self.target_net.load_state_dict(checkpoint["target_net_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.epsilon = checkpoint["epsilon"]
+        self.training_steps = checkpoint["training_steps"]
+        self.loss_window = checkpoint.get("loss_window", [])
+        self.temperature = checkpoint.get("temperature", 1.0)

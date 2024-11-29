@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import torch
 from pettingzoo.classic import connect_four_v3
+from torch.optim.lr_scheduler import CyclicLR
 
 from connectfour.deep_q_network.dqn_agent import DQNAgent
 
@@ -26,8 +27,16 @@ class TrainingConfig:
     epsilon_end: float = 0.1
     epsilon_decay: float = 0.9999975
     opponent_update_freq: int = 10000
+    temperature: float = 1.0  # Temperature parameter for action selection
+    # Learning rate cycle parameters
+    lr_cycle_length: int = 50000
+    lr_max: float = 3e-4
+    lr_min: float = 5e-5
     # Paths for loading and saving
     pretrained_model_path: str = "models/dqn_agent_random_first_player.pth"
+    opponent_model_path: str = (
+        "models/dqn_agent_opponent.pth"  # Separate path for opponent
+    )
     model_path: str = "models/dqn_agent_self_play.pth"
     metrics_path: str = "metrics/dqn_training_metrics_self_play"
 
@@ -35,25 +44,17 @@ class TrainingConfig:
 class DQNTrainer:
     def __init__(self, config: TrainingConfig):
         self.config = config
+        self.setup_metrics()
+        self.setup_device()
+        self.setup_environment()
+        self.setup_agents()
+        self.setup_scheduler()
+
+    def setup_metrics(self):
         self.wins = 0
         self.losses = 0
         self.draws = 0
         self.moves_history = []
-
-        # Setup device
-        if torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-        elif torch.cuda.is_available():
-            self.device = torch.device("cuda")
-        else:
-            self.device = torch.device("cpu")
-        print(f"Using device: {self.device}")
-
-        # Create directories
-        os.makedirs(os.path.dirname(self.config.model_path), exist_ok=True)
-        os.makedirs(os.path.dirname(self.config.metrics_path), exist_ok=True)
-
-        # Initialize metrics tracking
         self.recent_results = deque(maxlen=1000)
         self.metrics_history = {
             "episodes": [],
@@ -66,82 +67,116 @@ class DQNTrainer:
             "avg_moves": [],
             "max_streak": [],
             "win_rate_improvement": [],
+            "learning_rate": [],
         }
 
-        # Initialize environment dimensions
+    def setup_device(self):
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+        print(f"Using device: {self.device}")
+
+    def setup_environment(self):
+        os.makedirs(os.path.dirname(self.config.model_path), exist_ok=True)
+        os.makedirs(os.path.dirname(self.config.metrics_path), exist_ok=True)
+
         temp_env = connect_four_v3.env()
         temp_env.reset()
         obs, _, _, _, _ = temp_env.last()
-        self.state_dim = (3, 6, 7)  # Channels, Height, Width
+        self.state_dim = (3, 6, 7)
         self.action_dim = temp_env.action_space("player_1").n
         temp_env.close()
 
-        # Initialize DQN agent
+    def setup_agents(self):
+        # Main agent setup
         self.agent = DQNAgent(
             state_dim=self.state_dim,
             action_dim=self.action_dim,
             device=self.device,
-            learning_rate=config.learning_rate,
-            memory_capacity=config.memory_capacity,
-            batch_size=config.batch_size,
-            gamma=config.gamma,
-            epsilon_start=config.epsilon_start,
-            epsilon_end=config.epsilon_end,
-            epsilon_decay=config.epsilon_decay,
+            learning_rate=self.config.learning_rate,
+            memory_capacity=self.config.memory_capacity,
+            batch_size=self.config.batch_size,
+            gamma=self.config.gamma,
+            epsilon_start=self.config.epsilon_start,
+            epsilon_end=self.config.epsilon_end,
+            epsilon_decay=self.config.epsilon_decay,
+            temperature=self.config.temperature,
         )
 
-        print(f"Loading pretrained model from {config.pretrained_model_path}")
-        checkpoint = torch.load(
-            config.pretrained_model_path, map_location=self.device, weights_only=True
-        )
-        self.agent.policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
-        self.agent.target_net.load_state_dict(checkpoint["target_net_state_dict"])
+        # Load main agent checkpoint
+        if os.path.exists(self.config.pretrained_model_path):
+            checkpoint = torch.load(
+                self.config.pretrained_model_path, map_location=self.device
+            )
+            self.agent.policy_net.load_state_dict(checkpoint["policy_net_state_dict"])
+            self.agent.target_net.load_state_dict(checkpoint["target_net_state_dict"])
 
+        # Opponent agent setup with separate checkpoint
         self.opponent_agent = DQNAgent(
             state_dim=self.state_dim,
             action_dim=self.action_dim,
             device=self.device,
-            learning_rate=config.learning_rate,
-            memory_capacity=config.memory_capacity,
-            batch_size=config.batch_size,
-            gamma=config.gamma,
-            epsilon_start=0.2,  # Lower epsilon for opponent
+            learning_rate=self.config.learning_rate,
+            memory_capacity=self.config.memory_capacity,
+            batch_size=self.config.batch_size,
+            gamma=self.config.gamma,
+            epsilon_start=0.2,
             epsilon_end=0.1,
             epsilon_decay=0.99999,
+            temperature=self.config.temperature
+            * 1.5,  # Slightly higher temperature for opponent
         )
-        self.opponent_agent.policy_net.load_state_dict(
-            self.agent.policy_net.state_dict()
-        )
-        self.opponent_agent.target_net.load_state_dict(
-            self.agent.target_net.state_dict()
+
+        if os.path.exists(self.config.opponent_model_path):
+            opponent_checkpoint = torch.load(
+                self.config.opponent_model_path, map_location=self.device
+            )
+            self.opponent_agent.policy_net.load_state_dict(
+                opponent_checkpoint["policy_net_state_dict"]
+            )
+            self.opponent_agent.target_net.load_state_dict(
+                opponent_checkpoint["target_net_state_dict"]
+            )
+        else:
+            self.opponent_agent.policy_net.load_state_dict(
+                self.agent.policy_net.state_dict()
+            )
+            self.opponent_agent.target_net.load_state_dict(
+                self.agent.target_net.state_dict()
+            )
+
+    def setup_scheduler(self):
+        self.scheduler = CyclicLR(
+            self.agent.optimizer,
+            base_lr=self.config.lr_min,
+            max_lr=self.config.lr_max,
+            step_size_up=self.config.lr_cycle_length // 2,
+            mode="triangular2",
         )
 
     def _preprocess_observation(self, obs):
-        """Faster preprocessing with less memory allocation"""
         board = torch.from_numpy(obs["observation"][:, :, 0]).to(self.device)
-        # Reuse tensors instead of creating new ones
         if not hasattr(self, "valid_moves_tensor"):
             self.valid_moves_tensor = torch.zeros((6, 7), device=self.device)
-
         self.valid_moves_tensor.zero_()
         self.valid_moves_tensor[
             0, [i for i, valid in enumerate(obs["action_mask"]) if valid]
         ] = 1
-
         return torch.stack(
             [
-                (board == 1).float(),  # Player pieces
-                (board == -1).float(),  # Opponent pieces
+                (board == 1).float(),
+                (board == -1).float(),
                 self.valid_moves_tensor,
             ]
         )
 
     def _get_valid_moves(self, obs):
-        """Get list of valid moves from observation"""
         return [i for i, valid in enumerate(obs["action_mask"]) if valid]
 
     def _update_stats(self, reward: float):
-        """Debug version of stats update"""
         if reward > 0:
             self.wins += 1
             self.recent_results.append("W")
@@ -169,17 +204,23 @@ class DQNTrainer:
             previous_action = None
             game_done = False
 
-            # Update opponent network periodically
+            # Update opponent network and save checkpoint
             if episode % self.config.opponent_update_freq == 0 and episode > 0:
                 print(f"\nUpdating opponent network at episode {episode}")
                 self.opponent_agent.policy_net.load_state_dict(
                     self.agent.policy_net.state_dict()
                 )
+                torch.save(
+                    {
+                        "policy_net_state_dict": self.opponent_agent.policy_net.state_dict(),
+                        "target_net_state_dict": self.opponent_agent.target_net.state_dict(),
+                    },
+                    self.config.opponent_model_path,
+                )
 
             for agent in self.env.agent_iter():
                 observation, reward, termination, truncation, _ = self.env.last()
 
-                # Only process reward for our agent and only once per game
                 if (
                     (termination or truncation)
                     and not game_done
@@ -189,7 +230,6 @@ class DQNTrainer:
                     self.moves_history.append(move_count)
                     game_done = True
 
-                # Set action to None if game is over
                 if termination or truncation:
                     action = None
                     if previous_state is not None and agent == "player_0":
@@ -203,6 +243,7 @@ class DQNTrainer:
                             if loss is not None:
                                 episode_loss += loss
                                 training_steps += 1
+                                self.scheduler.step()
                             steps_since_train = 0
                 else:
                     current_state = self._preprocess_observation(observation)
@@ -221,14 +262,15 @@ class DQNTrainer:
                             if loss is not None:
                                 episode_loss += loss
                                 training_steps += 1
+                                self.scheduler.step()
                             steps_since_train = 0
 
-                    if agent == "player_0":  # Our learning agent
+                    if agent == "player_0":
                         valid_moves = self._get_valid_moves(observation)
                         action = self.agent.select_action(current_state, valid_moves)
                         previous_state = current_state
                         previous_action = action
-                    else:  # Opponent (self-play agent)
+                    else:
                         valid_moves = self._get_valid_moves(observation)
                         action = self.opponent_agent.select_action(
                             current_state, valid_moves
@@ -258,7 +300,6 @@ class DQNTrainer:
         self.save_metrics("last")
 
     def _log_progress(self, episode: int, loss: float, fps: float):
-        # Existing metrics
         total_games = self.wins + self.losses + self.draws
         win_rate = self.wins / total_games if total_games > 0 else 0
         win_percentage = win_rate * 100
@@ -270,16 +311,12 @@ class DQNTrainer:
         )
         draws_ratio = (self.draws / total_games * 100) if total_games > 0 else 0
 
-        # New metrics
-        if hasattr(self, "moves_history"):
-            avg_moves = sum(self.moves_history[-1000:]) / len(
-                self.moves_history[-1000:]
-            )
-        else:
-            self.moves_history = []
-            avg_moves = 0
+        avg_moves = (
+            sum(self.moves_history[-1000:]) / len(self.moves_history[-1000:])
+            if self.moves_history
+            else 0
+        )
 
-        # Calculate win streak
         current_streak = 0
         max_streak = 0
         for result in reversed(self.recent_results):
@@ -289,14 +326,14 @@ class DQNTrainer:
             else:
                 break
 
-        # Win rate difference from previous log interval
-        if hasattr(self, "previous_win_rate"):
-            win_rate_improvement = recent_percentage - self.previous_win_rate
-        else:
-            win_rate_improvement = 0
+        win_rate_improvement = recent_percentage - getattr(
+            self, "previous_win_rate", recent_percentage
+        )
         self.previous_win_rate = recent_percentage
 
-        # Store metrics
+        current_lr = self.scheduler.get_last_lr()[0]
+
+        # Update metrics history
         self.metrics_history["episodes"].append(episode)
         self.metrics_history["overall_win_rate"].append(win_percentage)
         self.metrics_history["recent_win_rate"].append(recent_percentage)
@@ -307,35 +344,24 @@ class DQNTrainer:
         self.metrics_history["avg_moves"].append(avg_moves)
         self.metrics_history["max_streak"].append(max_streak)
         self.metrics_history["win_rate_improvement"].append(win_rate_improvement)
+        self.metrics_history["learning_rate"].append(current_lr)
 
-        # Enhanced logging output
-        print(f"FPS: {fps:.2f}")
-        print(f"Episode: {episode}")
-        print(f"Overall Win Rate: {win_rate:.2f} ({win_percentage:.1f}%)")
-        print(f"Last {recent_total} games: {recent_percentage:.1f}%")
+        # Print progress
+        print(f"Episode: {episode} | FPS: {fps:.2f}")
+        print(f"Learning Rate: {current_lr:.6f}")
         print(
-            f"Win Rate Change: {win_rate_improvement:+.1f}%"
-        )  # + indicates improvement
-        print(f"Current Win Streak: {current_streak}")
-        print(f"Max Win Streak: {max_streak}")
-        print(f"Avg Moves per Game: {avg_moves:.1f}")
-        print(f"Wins: {self.wins}, Losses: {self.losses}, Draws: {self.draws}")
-        print(f"Main Agent Epsilon: {self.agent.epsilon:.3f}")
-        print(f"Opponent Epsilon: {self.opponent_agent.epsilon:.3f}")
-
-        if loss > 0:
-            if len(self.metrics_history["loss"]) > 1:
-                last_100_losses = self.metrics_history["loss"][-100:]
-                print(f"Current Loss: {loss:.6f}")
-                print(
-                    f"Avg Loss (last 100): {sum(last_100_losses) / len(last_100_losses):.6f}"
-                )
-                print(
-                    f"Min/Max Loss (last 100): {min(last_100_losses):.6f}/{max(last_100_losses):.6f}"
-                )
-            else:
-                print(f"Initial Loss: {loss:.6f}")
-
+            f"Overall Win Rate: {win_percentage:.1f}% | Recent: {recent_percentage:.1f}%"
+        )
+        print(
+            f"Win Rate Change: {win_rate_improvement:+.1f}% | Current Streak: {current_streak}"
+        )
+        print(f"Avg Moves: {avg_moves:.1f} | Loss: {loss:.6f}")
+        print(
+            f"Main ε: {self.agent.epsilon:.3f} | Opp ε: {self.opponent_agent.epsilon:.3f}"
+        )
+        print(
+            f"Temp: {self.config.temperature:.2f} | Opp Temp: {self.config.temperature * 1.5:.2f}"
+        )
         print("-" * 50)
 
     def save_metrics(self, episode):
