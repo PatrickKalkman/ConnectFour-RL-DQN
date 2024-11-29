@@ -21,10 +21,10 @@ class TrainingConfig:
     model_path: str = "models/dqn_agent_random_first_player.pth"
     metrics_path: str = "metrics/dqn_training_metrics_random_first_player"
     # DQN specific parameters
-    batch_size: int = 64
+    batch_size: int = 128
     memory_capacity: int = 750_000
-    learning_rate: float = 1e-4
-    gamma: float = 0.98
+    learning_rate: float = 5e-5
+    gamma: float = 0.99
     epsilon_start: float = 1.0
     epsilon_end: float = 0.1
     epsilon_decay: float = 0.999995
