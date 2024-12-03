@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.functional import mse_loss
 
-# from connectfour.deep_q_network.connect_four_dqn_convolutional import Connect4DQN
-from connectfour.deep_q_network.connect_four_dqn_dualing_resnet import Connect4DQN
+from connectfour.deep_q_network.connect_four_dqn_convolutional import Connect4DQN
+# from connectfour.deep_q_network.connect_four_dqn_dualing_resnet import Connect4DQN
 from connectfour.deep_q_network.replay_memory import ReplayMemory
 
 
@@ -47,7 +47,21 @@ class DQNAgent:
         self.loss_window = []
         self.loss_window_size = 100
 
-    def select_action(self, state, valid_moves):
+    def select_action(self, state, valid_moves, deterministic=False):
+        if deterministic:
+            with torch.no_grad():
+                state_tensor = (
+                    state
+                    if isinstance(state, torch.Tensor)
+                    else torch.FloatTensor(state).to(self.device)
+                )
+                state_tensor = state_tensor.unsqueeze(0)
+                q_values = self.policy_net(state_tensor)
+                mask = torch.ones(self.action_dim, device=self.device) * float("-inf")
+                mask[valid_moves] = 0
+                q_values = q_values + mask
+                return q_values.max(1)[1].item()
+
         if np.random.random() > self.epsilon:
             with torch.no_grad():
                 state_tensor = (
@@ -56,23 +70,16 @@ class DQNAgent:
                     else torch.FloatTensor(state).to(self.device)
                 )
                 state_tensor = state_tensor.unsqueeze(0)
-
                 q_values = self.policy_net(state_tensor)
-
-                # Mask invalid moves
                 mask = torch.ones(self.action_dim, device=self.device) * float("-inf")
                 mask[valid_moves] = 0
                 q_values = q_values + mask
 
                 if self.temperature != 1.0:
-                    # Apply temperature scaling
                     scaled_q_values = q_values / self.temperature
                     probs = F.softmax(scaled_q_values, dim=1)
-                    action = torch.multinomial(probs, 1).item()
-                else:
-                    action = q_values.max(1)[1].item()
-
-                return action
+                    return torch.multinomial(probs, 1).item()
+                return q_values.max(1)[1].item()
         else:
             return np.random.choice(valid_moves)
 
