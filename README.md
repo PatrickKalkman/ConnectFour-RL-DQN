@@ -30,18 +30,16 @@ connect-four-ai/
 │   │   ├── agent.py          # Sparse matrix Q-learning implementation
 │   │   ├── train.py          # Training script for sparse matrix approach
 │   │   └── utils.py          # Helper functions
-│   ├── deep_learning/
+│   ├── deep_q_network/
 │   │   ├── agent.py          # Deep Q-learning implementation
 │   │   ├── model.py          # Neural network architecture
 │   │   ├── train.py          # Training script for DQN
 │   │   └── utils.py          # Helper functions
-│   └── common/
-│       ├── visualization.py   # Shared visualization tools
-│       └── evaluation.py      # Agent evaluation utilities
+│   └── metrics/
 ```
 
 ## Requirements
-- Python 3.12
+- Python 3.10
 - PyTorch 2.1.1
 - PettingZoo 1.24.1
 - Kaggle Environments
@@ -49,39 +47,33 @@ connect-four-ai/
 
 ## Installation
 
+### Using Poetry
+
+First, ensure you have Poetry installed. If not, follow the instructions [here](https://python-poetry.org/docs/#installation).
+
 ```bash
 # Clone repository
 git clone https://github.com/PatrickKalkman/ConnectFour-RL-DQN.git
 cd ConnectFour-RL-DQN
 
+# Install dependencies with Poetry
+poetry install
 
-
-# Install dependencies
-pip install -r requirements.txt
+# Activate the virtual environment
+poetry shell
 ```
+
 
 ## Quick Start
 
 ### Train Sparse Matrix Agent
-```python
-from src.sparse_matrix.train import train_sparse_agent
-
-# Train agent
-agent = train_sparse_agent(episodes=100000)
-
-# Save trained agent
-agent.save("trained_sparse_agent.pkl")
+```bash
+python connectfour/sparse_matrix/train_random.py
 ```
 
 ### Train Deep Learning Agent
-```python
-from src.deep_learning.train import train_dqn_agent
-
-# Train agent
-agent = train_dqn_agent(episodes=100000)
-
-# Save trained model
-agent.save("trained_dqn_model.pth")
+```bash
+python connectfour/deep_q_network/train_random.py
 ```
 
 ## Training Progress
