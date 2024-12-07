@@ -35,7 +35,7 @@ class TrainingConfig:
     # Paths for loading and saving
     pretrained_model_path: str = "models/dqn_agent_random_first_player.pth"
     opponent_model_path: str = (
-        "models/dqn_agent_opponent.pth"  # Separate path for opponent
+        "models/dqn_agent_random_first_player.pth"  # Separate path for opponent
     )
     model_path: str = "models/dqn_agent_self_play.pth"
     metrics_path: str = "metrics/dqn_training_metrics_self_play"

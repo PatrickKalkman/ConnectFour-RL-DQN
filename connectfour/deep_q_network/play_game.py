@@ -16,7 +16,7 @@ class GameState:
 
 def play_against_agent(model_path: str = None):
     if model_path is None:
-        potential_paths = ["./models/dqn_agent_random_first_player.pth"]
+        potential_paths = ["./models/dqn_agent_random_first_player_dualing.pth"]
         model_path = next(
             (path for path in potential_paths if os.path.exists(path)), None
         )

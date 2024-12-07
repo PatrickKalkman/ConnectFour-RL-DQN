@@ -26,6 +26,10 @@ class MetricsVisualizer:
                 print(f"  Last few values: {value[-5:]}")
                 print("-" * 50)
 
+    def calculate_rolling_average(self, data, window=100):
+        """Calculate rolling average with the specified window size"""
+        return np.convolve(data, np.ones(window) / window, mode="valid")
+
     def plot_metrics(self, save_dir="metrics/training_plots"):
         """Plot metrics in separate subplots using seaborn style"""
         save_dir = Path(save_dir)
@@ -48,14 +52,14 @@ class MetricsVisualizer:
             label="overall_win_rate",
             color="#1f77b4",
             alpha=0.7,
-        )  # blue
+        )
         axs[0].plot(
             episodes,
             self.metrics["recent_win_rate"],
             label="recent_win_rate",
             color="#ff7f0e",
             alpha=0.7,
-        )  # orange
+        )
         axs[0].set_ylabel("Win Rate (%)")
 
         # 2. Epsilon Plot
@@ -65,13 +69,26 @@ class MetricsVisualizer:
             label="epsilon",
             color="#2ca02c",
             alpha=0.7,
-        )  # green
+        )
         axs[1].set_ylabel("Epsilon Value")
 
-        # 3. Loss Plot
+        # 3. Loss Plot with Rolling Average
+        window_size = 100
+        raw_loss = np.array(self.metrics["loss"])
+        smoothed_loss = self.calculate_rolling_average(raw_loss, window=window_size)
+
+        # Plot raw loss with low opacity
+        axs[2].plot(episodes, raw_loss, label="raw loss", color="#d62728", alpha=0.2)
+
+        # Plot smoothed loss
         axs[2].plot(
-            episodes, self.metrics["loss"], label="loss", color="#d62728", alpha=0.7
-        )  # red
+            episodes[window_size - 1 :],
+            smoothed_loss,
+            label=f"smoothed loss ({window_size}-episode avg)",
+            color="#2c3e50",
+            linewidth=2,
+            alpha=1.0,
+        )
         axs[2].set_ylabel("Loss Value")
 
         # 4. Draws Ratio Plot
@@ -81,22 +98,15 @@ class MetricsVisualizer:
             label="draws_ratio",
             color="#9467bd",
             alpha=0.7,
-        )  # purple
+        )
         axs[3].set_xlabel("Episodes")
         axs[3].set_ylabel("Ratio Value")
 
         # Common styling for all subplots
         for ax in axs:
-            # Add legend
             ax.legend(loc="upper right")
-
-            # Set x-axis limits
             ax.set_xlim(episodes[0], episodes[-1])
-
-            # Add grid with specific style
             ax.grid(True, linestyle="--", alpha=0.7)
-
-            # Remove top and right spines
             sns.despine(ax=ax)
 
         # Set title for the entire figure
@@ -113,7 +123,7 @@ class MetricsVisualizer:
 
 
 def main():
-    metrics_path = "metrics/dqn_training_metrics_random_first_player_last.json"
+    metrics_path = "metrics/dqn_training_metrics_self_play_last_dualing.json"
     visualizer = MetricsVisualizer(metrics_path)
 
     # Print detailed debug information
